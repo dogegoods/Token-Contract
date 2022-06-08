@@ -13,7 +13,7 @@
 ## DogeGoodsToken.sol
 DogeGoodsToken is a fork from safemoon contract with some fixes.
 
-### Certik fixes
+### Certik Security Audit
 
 All Safemoon issues and vulnerabilities that was discovered by [Certik](https://www.certik.com/projects/safemoon) was fixed
 
