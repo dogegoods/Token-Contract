@@ -475,6 +475,7 @@ contract Ownable is Context {
         require(block.timestamp > _lockTime , "Contract is locked until 7 days");
         emit OwnershipTransferred(_owner, _previousOwner);
         _owner = _previousOwner;
+        _previousOwner = address(0);
     }
 }
 
@@ -703,12 +704,12 @@ contract DogeGoodsToken is Context, IERC20, Ownable {
     mapping (address => bool) private _isExcluded;
     address[] private _excluded;
 
-    string private _name = "DogeGoods";
-    string private _symbol = "DOGEGoods";
-    uint8 private _decimals = 9;
+    string private constant _name = "DogeGoods";
+    string private constant _symbol = "DOGEGoods";
+    uint8 private constant _decimals = 9;
 
     uint256 private constant MAX = ~uint256(0);
-    uint256 private _tTotal = 420 * 10**15 * 10**_decimals;
+    uint256 private constant _tTotal = 420 * 10**15 * 10**_decimals;
     uint256 private _rTotal = (MAX - (MAX % _tTotal));
     uint256 private _tFeeTotal;
 
@@ -722,16 +723,14 @@ contract DogeGoodsToken is Context, IERC20, Ownable {
     address public immutable uniswapV2Pair;
     
     bool inSwapAndLiquify;
-    bool public swapAndLiquifyEnabled = true;
     
-    uint256 private numTokensSellToAddToLiquidity = 1 * 10**15 * 10**_decimals;
+    uint256 private constant numTokensSellToAddToLiquidity = 1 * 10**12 * 10**_decimals;
     
     event MinTokensBeforeSwapUpdated(uint256 minTokensBeforeSwap);
-    event SwapAndLiquifyEnabledUpdated(bool enabled);
     event SwapAndLiquify(
         uint256 tokensSwapped,
         uint256 ethReceived,
-        uint256 tokensIntoLiqudity
+        uint256 tokensIntoLiquidity
     );
     
     modifier lockTheSwap {
@@ -758,19 +757,19 @@ contract DogeGoodsToken is Context, IERC20, Ownable {
         emit Transfer(address(0), _msgSender(), _tTotal);
     }
 
-    function name() public view returns (string memory) {
+    function name() public pure returns (string memory) {
         return _name;
     }
 
-    function symbol() public view returns (string memory) {
+    function symbol() public pure returns (string memory) {
         return _symbol;
     }
 
-    function decimals() public view returns (uint8) {
+    function decimals() public pure returns (uint8) {
         return _decimals;
     }
 
-    function totalSupply() public view override returns (uint256) {
+    function totalSupply() public pure override returns (uint256) {
         return _tTotal;
     }
 
@@ -817,15 +816,6 @@ contract DogeGoodsToken is Context, IERC20, Ownable {
         return _tFeeTotal;
     }
 
-    function deliver(uint256 tAmount) public {
-        address sender = _msgSender();
-        require(!_isExcluded[sender], "Excluded addresses cannot call this function");
-        (uint256 rAmount,,,,,) = _getValues(tAmount);
-        _rOwned[sender] = _rOwned[sender].sub(rAmount);
-        _rTotal = _rTotal.sub(rAmount);
-        _tFeeTotal = _tFeeTotal.add(tAmount);
-    }
-
     function reflectionFromToken(uint256 tAmount, bool deductTransferFee) public view returns(uint256) {
         require(tAmount <= _tTotal, "Amount must be less than supply");
         if (!deductTransferFee) {
@@ -854,7 +844,7 @@ contract DogeGoodsToken is Context, IERC20, Ownable {
     }
 
     function includeInReward(address account) external onlyOwner() {
-        require(_isExcluded[account], "Account is already excluded");
+        require(_isExcluded[account], "Account is already included");
         for (uint256 i = 0; i < _excluded.length; i++) {
             if (_excluded[i] == account) {
                 _excluded[i] = _excluded[_excluded.length - 1];
@@ -892,13 +882,8 @@ contract DogeGoodsToken is Context, IERC20, Ownable {
     function setLiquidityFeePercent(uint256 liquidityFee) external onlyOwner() {
         _liquidityFee = liquidityFee;
     }
-   
-    function setSwapAndLiquifyEnabled(bool _enabled) public onlyOwner {
-        swapAndLiquifyEnabled = _enabled;
-        emit SwapAndLiquifyEnabledUpdated(_enabled);
-    }
     
-     //to recieve ETH from uniswapV2Router when swaping
+    //to receive ETH from uniswapV2Router when swapping
     receive() external payable {}
 
     function _reflectFee(uint256 rFee, uint256 tFee) private {
@@ -1010,8 +995,7 @@ contract DogeGoodsToken is Context, IERC20, Ownable {
         if (
             overMinTokenBalance &&
             !inSwapAndLiquify &&
-            from != uniswapV2Pair &&
-            swapAndLiquifyEnabled
+            from != uniswapV2Pair
         ) {
             //add liquidity
             swapAndLiquify(contractTokenBalance);
@@ -1034,17 +1018,19 @@ contract DogeGoodsToken is Context, IERC20, Ownable {
         uint256 half = contractTokenBalance.div(2);
         uint256 otherHalf = contractTokenBalance.sub(half);
 
-        // capture the contract's current ETH balance.
-        // this is so that we can capture exactly the amount of ETH that the
+        // Withdraw the contract's current ETH balance.
+        // This is so that we can capture exactly the amount of ETH that the
         // swap creates, and not make the liquidity event include any ETH that
-        // has been manually sent to the contract
-        uint256 initialBalance = address(this).balance;
+        // has been manually sent to the contract.
+        if (address(this).balance > 0) {
+            payable(owner()).transfer(address(this).balance);
+        }
 
         // swap tokens for ETH
         swapTokensForEth(half); // <- this breaks the ETH -> HATE swap when swap+liquify is triggered
 
         // how much ETH did we just swap into?
-        uint256 newBalance = address(this).balance.sub(initialBalance);
+        uint256 newBalance = address(this).balance;
 
         // add liquidity to uniswap
         addLiquidity(otherHalf, newBalance);
@@ -1094,8 +1080,6 @@ contract DogeGoodsToken is Context, IERC20, Ownable {
             _transferFromExcluded(sender, recipient, amount);
         } else if (!_isExcluded[sender] && _isExcluded[recipient]) {
             _transferToExcluded(sender, recipient, amount);
-        } else if (!_isExcluded[sender] && !_isExcluded[recipient]) {
-            _transferStandard(sender, recipient, amount);
         } else if (_isExcluded[sender] && _isExcluded[recipient]) {
             _transferBothExcluded(sender, recipient, amount);
         } else {
