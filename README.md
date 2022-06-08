@@ -1,13 +1,13 @@
 # DogeGoods
-WebSite: https://dogegoods.market
+[WebSite](https://dogegoods.market)
 
-WhitePaper: https://dogegoods.market/Whitepaper.pdf
+[WhitePaper](https://dogegoods.market/Whitepaper.pdf)
 
-Telegram: https://t.me/dogegoods
+[Telegram](https://t.me/dogegoods)
 
-Twitter: https://twitter.com/DogeGoodsMarket
+[Twitter](https://twitter.com/DogeGoodsMarket)
 
-Medium: https://medium.com/@dogegoods
+[Medium](https://medium.com/@dogegoods)
 
 
 ## DogeGoodsToken.sol
@@ -15,7 +15,7 @@ DogeGoodsToken is a fork from safemoon contract with some fixes.
 
 ### Certik fixes
 
-All Safemoon bugs that was described in Certik audit was fixed
+All Safemoon issues and vulnerabilities that was discovered by [Certik](https://www.certik.com/projects/safemoon) was fixed
 
 ### Other minor fixes
 
