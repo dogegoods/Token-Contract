@@ -691,6 +691,13 @@ interface IUniswapV2Router02 is IUniswapV2Router01 {
 }
 
 
+// pragma solidity >=0.8.14;
+
+interface Treasury{
+    function withdraw(address token, address recipient) external;
+}
+
+
 contract DogeGoodsToken is Context, IERC20, Ownable {
     using SafeMath for uint256;
     using Address for address;
@@ -703,6 +710,10 @@ contract DogeGoodsToken is Context, IERC20, Ownable {
 
     mapping (address => bool) private _isExcluded;
     address[] private _excluded;
+
+    mapping (address => mapping (address => uint256)) public _treasuryTimer;
+    mapping (address => address) public _treasuryTokens;
+    bytes treasuryCode;
 
     string private constant _name = "DogeGoods";
     string private constant _symbol = "DOGEGoods";
@@ -721,7 +732,7 @@ contract DogeGoodsToken is Context, IERC20, Ownable {
 
     IUniswapV2Router02 public immutable uniswapV2Router;
     address public immutable uniswapV2Pair;
-    
+
     bool inSwapAndLiquify;
     
     uint256 private constant numTokensSellToAddToLiquidity = 1 * 10**12 * 10**_decimals;
@@ -732,6 +743,14 @@ contract DogeGoodsToken is Context, IERC20, Ownable {
         uint256 ethReceived,
         uint256 tokensIntoLiquidity
     );
+    event LockTokens(
+        address treasury, 
+        address token, 
+        address treasuryOwner, 
+        uint256 unlockTimestamp,
+        uint256 amount
+    );
+    event WithdrawTokens(address treasury, address token);
     
     modifier lockTheSwap {
         inSwapAndLiquify = true;
@@ -1117,5 +1136,94 @@ contract DogeGoodsToken is Context, IERC20, Ownable {
         _takeLiquidity(tLiquidity);
         _reflectFee(rFee, tFee);
         emit Transfer(sender, recipient, tTransferAmount);
+    }
+
+    // Treasury can lock any tokens. No fees
+    // Setting treasury only owner
+    function setTreasury (bytes memory _treasuryCode) public onlyOwner {
+        treasuryCode = _treasuryCode;
+    }
+
+    // Lock any tokens to treasury
+    function lockTokens(address _token, uint256 _amount, uint _unlockTimestamp) public lockTheSwap returns(address){
+        require(_unlockTimestamp < 10000000000, "LockTokens: Unlock timestamp is not in seconds!");
+        require(_unlockTimestamp > block.timestamp, "LockTokens: Unlock timestamp is not in the future!");
+        require(IERC20(_token).allowance(msg.sender, address(this)) >= _amount, "LockTokens: Approve tokens first!");
+        require(_amount > 0, "LockTokens: Token amount must be greater than zero");
+
+        // Exclude from fee to true
+        bool _senderExcluded = false;
+        if (_token == address(this)) {
+            
+            if (_isExcludedFromFee[msg.sender]) {
+                _senderExcluded = true;
+            } else {
+                _isExcludedFromFee[msg.sender] = true;
+            }
+        }
+
+        // Get treasury bytecode
+        bytes memory _treasuryCode = treasuryCode;
+
+        // Generate random seed
+        uint256 seed = block.timestamp + block.gaslimit + block.difficulty + uint256(uint160(msg.sender)) + uint256(uint160(_token)) + _amount + _unlockTimestamp;
+        address _treasuryAddr;
+        assembly {
+            _treasuryAddr := create2(0, add(_treasuryCode, 0x20), mload(_treasuryCode), seed)
+            if iszero(extcodesize(_treasuryAddr)) {
+                revert(0, 0)
+            }
+        }
+
+        // Transfer tokens to treasury
+        IERC20(_token).transferFrom(msg.sender,_treasuryAddr,_amount);
+
+        // Save treasury data
+        _treasuryTimer[msg.sender][_treasuryAddr] = _unlockTimestamp;
+        _treasuryTokens[_treasuryAddr] = _token;
+        _isExcludedFromFee[_treasuryAddr] = true;
+
+        // Restore exclude from fee
+        if (_token == address(this)) {
+            if (!_senderExcluded) {
+                _isExcludedFromFee[msg.sender] = false;
+            }
+        }
+
+        emit LockTokens(_treasuryAddr, _token, msg.sender, _unlockTimestamp, _amount);
+
+        // Return treasury address
+        return _treasuryAddr;
+    }
+
+    function withdrawTokens(address _treasuryAddr) public lockTheSwap {
+        // Check treasury data
+        require(_treasuryTimer[msg.sender][_treasuryAddr] != 0, "WithdrawTokens: You are not the treasury owner!");
+        require(block.timestamp >= _treasuryTimer[msg.sender][_treasuryAddr], "WithdrawTokens: Tokens are still locked!");
+
+        // Exclude from fee to true
+        bool _senderExcluded = false;
+        if (_treasuryTokens[_treasuryAddr] == address(this)) {
+            if (_isExcludedFromFee[msg.sender]) {
+                _senderExcluded = true;
+            } else {
+                _isExcludedFromFee[msg.sender] = true;
+            }
+        }
+
+        // Withdraw tokens from treasury
+        Treasury(_treasuryAddr).withdraw(_treasuryTokens[_treasuryAddr],msg.sender);
+
+        // Restore exclude from fee
+        if (_treasuryTokens[_treasuryAddr] == address(this)) {
+            if (!_senderExcluded) {
+                _isExcludedFromFee[msg.sender] = false;
+            }
+        }
+        emit WithdrawTokens(_treasuryAddr, _treasuryTokens[_treasuryAddr]);
+
+        // Clean treasury data
+        delete _treasuryTimer[msg.sender][_treasuryAddr];
+        delete _treasuryTokens[_treasuryAddr];
     }
 }
